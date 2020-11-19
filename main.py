@@ -1,6 +1,5 @@
 import requests
 import json
-import time
 
 root_url = 'https://api.thousandeyes.com/v6'
 your_email = ''
@@ -31,28 +30,27 @@ def get_agent_to_agent_tests(email, api_token, payload):
 
     # we want to convert to python dict first
     # otherwise you end up with double-encoded json (yep, I've seen this before)
-    #return json.loads(te_response.text)
     return json.loads(te_response.text)
 
+
+# creating function to delete stale tests
+def delete_stale_tests(email, api_token, payload, test_id):
+    # post to delete agent to agent tests
+    te_delete_test_response = requests.post(f'{ root_url }/tests/agent-to-agent/'+ str(test_id) \
+        +'/delete', auth=(email, api_token), params=payload)
+
+    return te_delete_test_response
+
+# function to remove values from a list
+def remove_values_from_list(the_list, val):
+    # using list comprehension to filter unwanted values
+   return [value for value in the_list if value != val]
+
 # function to create new agent to agent test with variables
-def create_agent_to_agent_test(email, api_token, payload, source_agent_id, target_agent_id):
+def create_agent_to_agent_test(email, api_token, payload, body):
 
-    test_payload = {"aid" : your_aid,
-    "interval": 30,
-        # setting protocol to UDP since we are only interested in measuring latency/loss/jitter
-          "protocol": "UDP",
-           "agents": [
-               # source agent will be Hotel (Branch) site
-             {"agentId": source_agent_id}
-           ],
-           # target agent will be set to one of NY area cloud servers
-       "targetAgentId": target_agent_id,
-           "testName": "test1"+ str(time.time()), 
-           "alertsEnabled": 0
-         }
-
-    te_create_test_response = requests.put(f'{ root_url }/tests/agent-to-agent/new.json', \
-        auth=(email, api_token), params=test_payload)
+    te_create_test_response = requests.post(f'{ root_url }/tests/agent-to-agent/new.json', \
+        auth=(email, api_token), params=payload, data = body, headers = {"Content-Type" : "application/json"})
 
     return json.loads(te_create_test_response.text)
     
@@ -104,14 +102,54 @@ stale_tests_to_delete = []
 te_agent_agent_tests_apicall = get_agent_to_agent_tests(email=your_email, api_token = your_apikey, \
     payload=your_optional_payload)
 
-print(te_agent_agent_tests_apicall)
+# parsing the json to get to the list of dictionaries we can iterate through
+List_of_tests = te_agent_agent_tests_apicall['test']
 
 # iterating through existing list of tests
-#for tests in te_agent_agent_tests_apicall:
-    #if hotel_agent_id in tests['testName']:
-        #print("found")
+for tests in List_of_tests:
+    if "Production Test" not in str(tests['testName']):
+        print("detected non production test, appending to list for deletion")
+        # appending the test ID for matched list to the stale_tests_to_delete variable
+        stale_tests_to_delete.append(tests['testId'])
+    
+    # now that we have deleted all stale tests we need to create new tests if they havent been created yet
+    elif "Production Test" in str(tests['testName']):
+        # iterating through list of destination endpoints to test
+        for agent_tests in destination_agent_list:
+            if tests['targetAgentId'] == agent_tests:
+                # need to remove agent ID matching tests['targetAgentId'] from destination_agent_list
+                # executing function remove_values_from_list
+                destination_agent_list = remove_values_from_list(destination_agent_list, \
+                    tests['targetAgentId'])
+                print(destination_agent_list)        
 
-print(time.time())
+# need to iterate through list of test IDs in stale_tests_to_delete list and call the delete test api
+for stale_tests in stale_tests_to_delete:
+    # calling delete test function for thousandeyes
+    delete_test = delete_stale_tests(email=your_email, api_token = your_apikey, \
+        payload=your_optional_payload, test_id = stale_tests)
+    print(delete_test)
 
-#te_agent_agent_tests_apicall = create_agent_to_agent_test(email=your_email, api_token=your_apikey, \
-#    payload=your_optional_payload, source_agent_id = hotel_agent_id, target_agent_id = destination_agent_list[0]) # using first entry in dst list for now
+# now that the destination_agent_list has been built and updated we can start creating tests
+for new_tests in destination_agent_list:
+
+    test_name = "Production Test from " + str(hotel_agent_name) + " to agent ID " + str(new_tests) 
+
+    # crafting body for HTTP Post to create test in TE dashboard
+    create_test_data = { "interval": 300,
+        "agents": [
+          {"agentId": hotel_agent_id}
+        ],
+        "testName": test_name,
+        "targetAgentId": new_tests,
+        "port": 63363,
+        "alertsEnabled": 0,
+        
+      }
+
+    print(create_test_data)
+
+    te_agent_agent_tests_apicall = create_agent_to_agent_test(email=your_email, api_token=your_apikey, \
+        payload=your_optional_payload, body = json.dumps(create_test_data)) # using first entry in dst list for now
+
+    print(te_agent_agent_tests_apicall)
