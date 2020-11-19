@@ -133,7 +133,14 @@ for stale_tests in stale_tests_to_delete:
 # now that the destination_agent_list has been built and updated we can start creating tests
 for new_tests in destination_agent_list:
 
-    test_name = "Production Test from " + str(hotel_agent_name) + " to agent ID " + str(new_tests) 
+    dst_name = ''
+
+    # iterating through list of agents to map the new tests (equal to destination ID) to dst name
+    for agent_name in agent_list:
+        if new_tests == agent_name['agentId']:
+            dst_name = agent_name['agentName']
+
+    test_name = "Production Test from " + str(hotel_agent_name) + " to agent " + str(dst_name) 
 
     # crafting body for HTTP Post to create test in TE dashboard
     create_test_data = { "interval": 300,
@@ -142,9 +149,8 @@ for new_tests in destination_agent_list:
         ],
         "testName": test_name,
         "targetAgentId": new_tests,
-        "port": 63363,
+        "port": 49153,
         "alertsEnabled": 0,
-        
       }
 
     print(create_test_data)
